@@ -32,6 +32,9 @@ def join_layers(config_file: object) -> tuple:
     for layer in config_file['layers']:
         layer_path = Path.cwd() / 'art-engine' / 'assets' / layer['name']
         
+        print(f"Processing layer: {layer['name']}")
+        print(f"Layer path: {layer_path}")
+
         if 'types' in layer:
             # Handle complex layer structure with subfolders
             all_layers = []
@@ -45,18 +48,20 @@ def join_layers(config_file: object) -> tuple:
         else:
             # Handle simple layer structure
             all_layers = sorted([trait for trait in layer_path.iterdir() if trait.is_file() and trait.suffix in ['.png', '.jpg', '.jpeg']])
-            all_rarities = layer['rarities']
+            all_rarities = layer['rarities'].copy()
 
-        print(f"Processing layer: {layer['name']}")
-        print(f"Layer path: {layer_path}")
         print(f"Number of items found: {len(all_layers)}")
         print(f"Rarities: {all_rarities}")
 
-        if not layer.get('required', True):
+        # Handle optional layers
+        is_required = layer.get('required', True)
+        if not is_required:
             all_layers.append('None')
-            all_rarities.append(100 - sum(all_rarities))
-            print(f"Optional layer: {layer['name']}, added 'None' option")
+            none_rarity = 100 - sum(all_rarities)
+            all_rarities.append(none_rarity)
+            print(f"Optional layer: {layer['name']}, added 'None' option with rarity {none_rarity}")
 
+        # Ensure number of layers matches number of rarities
         if len(all_layers) != len(all_rarities):
             print(f"Warning: Mismatch in number of items ({len(all_layers)}) and rarities ({len(all_rarities)}) for layer {layer['name']}")
             if len(all_layers) > len(all_rarities):
@@ -65,10 +70,13 @@ def join_layers(config_file: object) -> tuple:
                 all_rarities = all_rarities[:len(all_layers)]
             print(f"Adjusted rarities: {all_rarities}")
 
-        if sum(all_rarities) != 100:
-            print(f"Warning: Rarities for layer {layer['name']} do not sum to 100. Normalizing...")
-            total = sum(all_rarities)
+        # Normalize rarities
+        total = sum(all_rarities)
+        if total != 100:
+            print(f"Warning: Rarities for layer {layer['name']} sum to {total}. Normalizing...")
             all_rarities = [int((r / total) * 100) for r in all_rarities]
+            # Ensure the sum is exactly 100 after rounding
+            all_rarities[-1] += 100 - sum(all_rarities)
             print(f"Normalized rarities: {all_rarities}")
 
         chosen_image = random.choices(all_layers, weights=all_rarities)[0]
