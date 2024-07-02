@@ -27,34 +27,48 @@ def make_dirs() -> None:
 
 
 def join_layers(config_file: object) -> tuple:
-    """ Joins a set of layers to be used for a single image. Loops through each layer
-    folder and chooses a layer from each folder based on the given rarity weights. It 
-    then appends all the paths to a list which act as the final layers for the image.
-    """
     final_layers = list()
 
     for layer in config_file['layers']:
-
         layer_path = Path.cwd() / 'art-engine' / 'assets' / layer['name']
-        layers = sorted(
-            [trait for trait in layer_path.iterdir() if trait.is_file()])
+        layers = sorted([trait for trait in layer_path.iterdir() if trait.is_file() and trait.suffix in ['.png', '.jpg', '.jpeg']])
 
-        if not layer['required']:
+        print(f"Processing layer: {layer['name']}")
+        print(f"Layer path: {layer_path}")
+        print(f"Number of layers found: {len(layers)}")
+        print(f"Layers: {layers}")
+        print(f"Rarities: {layer['rarities']}")
+
+        if not layer.get('required', True):
             layers.append('None')
+            if len(layer['rarities']) < len(layers):
+                layer['rarities'].append(100 - sum(layer['rarities']))
+            print(f"Optional layer: {layer['name']}, added 'None' option")
 
-        chosen_image = random.choices(layers, weights=(layer['rarities']))
-        image_path = layer_path / chosen_image[0]
+        if len(layers) != len(layer['rarities']):
+            print(f"Warning: Mismatch in number of layers ({len(layers)}) and rarities ({len(layer['rarities'])}) for layer {layer['name']}")
+            if len(layers) > len(layer['rarities']):
+                layer['rarities'].extend([0] * (len(layers) - len(layer['rarities'])))
+            else:
+                layer['rarities'] = layer['rarities'][:len(layers)]
+            print(f"Adjusted rarities: {layer['rarities']}")
+
+        if sum(layer['rarities']) != 100:
+            print(f"Warning: Rarities for layer {layer['name']} do not sum to 100. Normalizing...")
+            total = sum(layer['rarities'])
+            layer['rarities'] = [int((r / total) * 100) for r in layer['rarities']]
+            print(f"Normalized rarities: {layer['rarities']}")
+
+        chosen_image = random.choices(layers, weights=layer['rarities'])
+        image_path = layer_path / chosen_image[0] if chosen_image[0] != 'None' else 'None'
 
         final_layers.append(image_path)
 
     return tuple(final_layers)
 
 
+
 def create_metadata(config_file: object, edition: int, final_layers: tuple) -> None:
-    """ Takes in some user data, along with the layers of the image
-    and create a metadata json for the image. The json object
-    can be stored and used by third-party marketplaces.
-    """
     token_prefix = config_file['token_prefix']
     token_description = config_file['description']
     uri_prefix = config_file['uri_prefix']
@@ -67,44 +81,32 @@ def create_metadata(config_file: object, edition: int, final_layers: tuple) -> N
         'attributes': []
     }
 
-    for layer in final_layers:
-        attributes_dict = dict()
-        split_data = layer.parts
-
-        attributes_dict['trait_type'] = split_data[-2]
-        trait_value = split_data[-1]
-
-        if trait_value != None:
-            attributes_dict['value'] = trait_value.replace('.png', '')
-        else:
-            attributes_dict['value'] = trait_value
-
-        metadata_dict['attributes'].append(attributes_dict)
+    for layer, config_layer in zip(final_layers, config_file['layers']):
+        if layer != 'None':
+            attributes_dict = {
+                'trait_type': config_layer['name'],
+                'value': layer.stem
+            }
+            metadata_dict['attributes'].append(attributes_dict)
 
     with open(f'build/json/{edition}.json', 'w', encoding='utf-8') as outfile:
         json.dump(metadata_dict, outfile, indent=2)
 
 
 def create_image(config_file: object, edition: int, final_layers: tuple) -> None:
-    """ Takes a list of layers, and creates one final image from layers. Saves it in the
-     images folder."""
     token_prefix = config_file['token_prefix']
 
     if config_file['draw_background']:
-
         width = config_file['canvas_width']
         height = config_file['canvas_height']
         bg_color = config_file['background_color']
-
-        base_image = Image.new(mode='RGBA', size=(
-            width, height), color=bg_color)
+        base_image = Image.new(mode='RGBA', size=(width, height), color=bg_color)
     else:
         base_image = Image.open(final_layers[0]).convert('RGBA')
         final_layers = final_layers[1:]
 
     for file in final_layers:
-        split_data = str(file)
-        if not split_data.endswith('None'):
+        if file != 'None':
             img = Image.open(file).convert('RGBA')
             base_image.alpha_composite(img)
 
