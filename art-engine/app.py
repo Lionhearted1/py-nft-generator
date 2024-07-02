@@ -31,41 +31,52 @@ def join_layers(config_file: object) -> tuple:
 
     for layer in config_file['layers']:
         layer_path = Path.cwd() / 'art-engine' / 'assets' / layer['name']
-        layers = sorted([trait for trait in layer_path.iterdir() if trait.is_file() and trait.suffix in ['.png', '.jpg', '.jpeg']])
+        
+        if 'types' in layer:
+            # Handle complex layer structure with subfolders
+            all_layers = []
+            all_rarities = []
+            for type_info in layer['types']:
+                for type_name, type_rarities in type_info.items():
+                    type_path = layer_path / type_name
+                    type_layers = sorted([trait for trait in type_path.iterdir() if trait.is_file() and trait.suffix in ['.png', '.jpg', '.jpeg']])
+                    all_layers.extend(type_layers)
+                    all_rarities.extend(type_rarities)
+        else:
+            # Handle simple layer structure
+            all_layers = sorted([trait for trait in layer_path.iterdir() if trait.is_file() and trait.suffix in ['.png', '.jpg', '.jpeg']])
+            all_rarities = layer['rarities']
 
         print(f"Processing layer: {layer['name']}")
         print(f"Layer path: {layer_path}")
-        print(f"Number of layers found: {len(layers)}")
-        print(f"Layers: {layers}")
-        print(f"Rarities: {layer['rarities']}")
+        print(f"Number of items found: {len(all_layers)}")
+        print(f"Rarities: {all_rarities}")
 
         if not layer.get('required', True):
-            layers.append('None')
-            if len(layer['rarities']) < len(layers):
-                layer['rarities'].append(100 - sum(layer['rarities']))
+            all_layers.append('None')
+            all_rarities.append(100 - sum(all_rarities))
             print(f"Optional layer: {layer['name']}, added 'None' option")
 
-        if len(layers) != len(layer['rarities']):
-            print(f"Warning: Mismatch in number of layers ({len(layers)}) and rarities ({len(layer['rarities'])}) for layer {layer['name']}")
-            if len(layers) > len(layer['rarities']):
-                layer['rarities'].extend([0] * (len(layers) - len(layer['rarities'])))
+        if len(all_layers) != len(all_rarities):
+            print(f"Warning: Mismatch in number of items ({len(all_layers)}) and rarities ({len(all_rarities)}) for layer {layer['name']}")
+            if len(all_layers) > len(all_rarities):
+                all_rarities.extend([0] * (len(all_layers) - len(all_rarities)))
             else:
-                layer['rarities'] = layer['rarities'][:len(layers)]
-            print(f"Adjusted rarities: {layer['rarities']}")
+                all_rarities = all_rarities[:len(all_layers)]
+            print(f"Adjusted rarities: {all_rarities}")
 
-        if sum(layer['rarities']) != 100:
+        if sum(all_rarities) != 100:
             print(f"Warning: Rarities for layer {layer['name']} do not sum to 100. Normalizing...")
-            total = sum(layer['rarities'])
-            layer['rarities'] = [int((r / total) * 100) for r in layer['rarities']]
-            print(f"Normalized rarities: {layer['rarities']}")
+            total = sum(all_rarities)
+            all_rarities = [int((r / total) * 100) for r in all_rarities]
+            print(f"Normalized rarities: {all_rarities}")
 
-        chosen_image = random.choices(layers, weights=layer['rarities'])
-        image_path = layer_path / chosen_image[0] if chosen_image[0] != 'None' else 'None'
+        chosen_image = random.choices(all_layers, weights=all_rarities)[0]
+        image_path = chosen_image if chosen_image != 'None' else 'None'
 
         final_layers.append(image_path)
 
     return tuple(final_layers)
-
 
 
 def create_metadata(config_file: object, edition: int, final_layers: tuple) -> None:
@@ -85,7 +96,8 @@ def create_metadata(config_file: object, edition: int, final_layers: tuple) -> N
         if layer != 'None':
             attributes_dict = {
                 'trait_type': config_layer['name'],
-                'value': layer.stem
+                'value': layer.parent.name,
+                'sub_value': layer.stem
             }
             metadata_dict['attributes'].append(attributes_dict)
 
@@ -94,8 +106,6 @@ def create_metadata(config_file: object, edition: int, final_layers: tuple) -> N
 
 
 def create_image(config_file: object, edition: int, final_layers: tuple) -> None:
-    token_prefix = config_file['token_prefix']
-
     if config_file['draw_background']:
         width = config_file['canvas_width']
         height = config_file['canvas_height']
